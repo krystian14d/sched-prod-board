@@ -76,29 +76,50 @@ async function onAck(id, btn, act) {
   }
 }
 
-// R1: rows the board has not seen yet go in at the top, newest first; existing rows stay as they are.
-function render(incidents) {
-  const ids = new Set(incidents.map((i) => i.id));
-  for (const [id, li] of rows) {
-    if (!ids.has(id)) {
-      li.remove();
-      rows.delete(id);
-    }
+// R1 (changed by product, step 2): the list holds still while it is on screen. Incidents the board has
+// not shown yet wait in `pending`; the "N new" bar brings them in at the top, newest first, on click.
+// Rows already on screen are never moved or removed by a refresh.
+const pending = new Map(); // id → incident, newest first
+const newBar = board.querySelector('[data-testid="new-bar"]');
+
+function insertAtTop(incidents) {
+  // incidents are newest first; the newest ends up on top
+  for (let k = incidents.length - 1; k >= 0; k--) {
+    const i = incidents[k];
+    const li = rowFor(i);
+    rows.set(i.id, li);
+    list.insertBefore(li, list.firstChild);
   }
-  let prev = null;
-  for (const i of incidents) {
-    let li = rows.get(i.id);
-    if (!li) {
-      li = rowFor(i);
-      rows.set(i.id, li);
-    }
-    const want = prev ? prev.nextSibling : list.firstChild;
-    if (li !== want) list.insertBefore(li, want);
-    prev = li;
-  }
-  list.hidden = incidents.length === 0;
-  empty.hidden = incidents.length !== 0;
 }
+
+function render(incidents) {
+  const unseen = incidents.filter((i) => !rows.has(i.id));
+  if (rows.size === 0) {
+    insertAtTop(unseen); // nothing on screen yet, so nothing can move
+  } else {
+    for (const i of unseen) if (!pending.has(i.id)) pending.set(i.id, i);
+  }
+  showBar();
+  list.hidden = rows.size === 0;
+  empty.hidden = rows.size !== 0;
+}
+
+function showBar() {
+  const n = pending.size;
+  newBar.textContent = n === 1 ? '1 new incident — show' : `${n} new incidents — show`;
+  newBar.classList.toggle('on', n > 0); // the bar's slot is always there, so it never pushes the list down
+  newBar.disabled = n === 0;
+}
+
+newBar.addEventListener('click', () => {
+  if (!pending.size) return;
+  const incoming = [...pending.values()].sort((a, b) => b.openedAt.localeCompare(a.openedAt));
+  pending.clear();
+  insertAtTop(incoming);
+  showBar();
+  list.hidden = false;
+  empty.hidden = true;
+});
 
 function showError(err) {
   errorBox.textContent = `Could not reach the incident API: ${err.message}`;

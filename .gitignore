@@ -3,3 +3,5 @@ dist/
 rec/
 *.log
 .claude/
+replay-*.mjs
+replay-out/
